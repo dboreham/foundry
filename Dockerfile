@@ -3,6 +3,7 @@
 FROM alpine:3.16 as build-environment
 
 ARG TARGETARCH
+ARG BUILDPLATFORM
 WORKDIR /opt
 
 RUN apk add clang lld curl build-base linux-headers git \
@@ -10,13 +11,19 @@ RUN apk add clang lld curl build-base linux-headers git \
     && chmod +x ./rustup.sh \
     && ./rustup.sh -y
 
-RUN [[ "$TARGETARCH" = "arm64" ]] && echo "export CFLAGS=-mno-outline-atomics" >> $HOME/.profile || true
+# Works around an arm-specific rust bug, see: https://github.com/cross-rs/cross/issues/598
+RUN set -ex; [[ "$TARGETARCH" = "arm64" || $(uname -m) = "aarch64" ]] && echo "export CFLAGS=-mno-outline-atomics" >> $HOME/.profile || true
 
 WORKDIR /opt/foundry
 COPY . .
 
-RUN --mount=type=cache,target=/root/.cargo/registry --mount=type=cache,target=/root/.cargo/git --mount=type=cache,target=/opt/foundry/target \
-    source $HOME/.profile && cargo build --release \
+# BuildKit seems to provide no official way to detect its presence, so we use BUILDPLATFORM
+# as a reasonable proxy: skip BuildKit cache mount directives when not running under BuildKit
+RUN if [[ -z "$BUILDPLATFORM" ]] ; then echo Skipping BuildKit directives ; else \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/opt/foundry/target; fi  \
+    && source $HOME/.profile && cargo build --release \
     && mkdir out \
     && mv target/release/forge out/forge \
     && mv target/release/cast out/cast \
