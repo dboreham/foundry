@@ -7,7 +7,7 @@ use crate::prelude::{
     ChiselCommand, ChiselResult, ChiselSession, CmdCategory, CmdDescriptor, SessionSourceConfig,
     SolidityHelper,
 };
-use ethers::{abi::ParamType, contract::Lazy, utils::hex};
+use ethers::{abi::ParamType, contract::Lazy, types::H160, utils::hex};
 use forge::{
     decode::decode_console_logs,
     trace::{
@@ -21,7 +21,7 @@ use regex::Regex;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use solang_parser::diagnostics::Diagnostic;
-use std::{error::Error, io::Write, path::PathBuf, process::Command};
+use std::{error::Error, io::Write, path::PathBuf, process::Command, str::FromStr};
 use strum::IntoEnumIterator;
 use yansi::Paint;
 
@@ -35,6 +35,9 @@ pub static CHISEL_CHAR: &str = "⚒️";
 /// Matches Solidity comments
 static COMMENT_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^\s*(?://.*\s*$)|(/*[\s\S]*?\*/\s*$)").unwrap());
+
+/// Matches Ethereum addresses
+static ADDRESS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"0x[a-fA-F0-9]{40}").unwrap());
 
 /// Chisel input dispatcher
 #[derive(Debug)]
@@ -114,7 +117,7 @@ pub fn format_source(source: &str, config: FormatterConfig) -> eyre::Result<Stri
 
 impl ChiselDispatcher {
     /// Associated public function to create a new Dispatcher instance
-    pub fn new(config: &SessionSourceConfig) -> eyre::Result<Self> {
+    pub fn new(config: SessionSourceConfig) -> eyre::Result<Self> {
         ChiselSession::new(config).map(|session| Self { errored: false, session })
     }
 
@@ -305,26 +308,28 @@ impl ChiselDispatcher {
             },
             ChiselCommand::Fork => {
                 if let Some(session_source) = self.session.session_source.as_mut() {
-                    if args.is_empty() {
+                    if args.is_empty() || args[0].trim().is_empty() {
                         session_source.config.evm_opts.fork_url = None;
-                        return DispatchResult::CommandSuccess(Some(String::from(
-                            "Now using local environment.",
-                        )))
-                    } else if args.len() != 1 || args[0].trim().is_empty() {
+                        return DispatchResult::CommandSuccess(Some(
+                            "Now using local environment.".to_string(),
+                        ))
+                    }
+                    if args.len() != 1 {
                         return DispatchResult::CommandFailed(Self::make_error(
                             "Must supply a session ID as the argument.",
                         ))
                     }
+                    let arg = *args.first().unwrap();
 
                     // If the argument is an RPC alias designated in the
                     // `[rpc_endpoints]` section of the `foundry.toml` within
                     // the pwd, use the URL matched to the key.
                     let endpoint = if let Some(endpoint) =
-                        session_source.config.foundry_config.rpc_endpoints.get(args[0])
+                        session_source.config.foundry_config.rpc_endpoints.get(arg)
                     {
                         endpoint.clone()
                     } else {
-                        RpcEndpoint::Env(args[0].to_string())
+                        RpcEndpoint::Env(arg.to_string())
                     };
                     let fork_url = match endpoint.resolve() {
                         Ok(fork_url) => fork_url,
@@ -490,7 +495,7 @@ impl ChiselDispatcher {
                 match reqwest::get(&request_url).await {
                     Ok(response) => {
                         let json = response.json::<EtherscanABIResponse>().await.unwrap();
-                        if json.status.eq("1") && json.result.is_some() {
+                        if json.status == "1" && json.result.is_some() {
                             let abi = json.result.unwrap();
                             if let Ok(abi) = ethers::abi::Abi::load(abi.as_bytes()) {
                                 let mut interface = format!(
@@ -519,7 +524,7 @@ impl ChiselDispatcher {
                                             .inputs
                                             .iter()
                                             .map(|input| {
-                                                let mut formatted = format_param!(input);
+                                                let mut formatted = format!("{}", input.kind);
                                                 if input.indexed {
                                                     formatted.push_str(" indexed");
                                                 }
@@ -591,9 +596,9 @@ impl ChiselDispatcher {
                             )))
                         }
                     }
-                    Err(_) => DispatchResult::CommandFailed(Self::make_error(
-                        "Failed to communicate with Etherscan API; Are you offline?",
-                    )),
+                    Err(e) => DispatchResult::CommandFailed(Self::make_error(format!(
+                        "Failed to communicate with Etherscan API: {e}"
+                    ))),
                 }
             }
             ChiselCommand::Exec => {
@@ -710,43 +715,36 @@ impl ChiselDispatcher {
                 }
             }
             ChiselCommand::RawStack => {
-                if args.is_empty() {
-                    return DispatchResult::CommandFailed(Self::make_error("No variable supplied!"))
-                } else if args.len() > 1 {
-                    return DispatchResult::CommandFailed(Self::make_error(
-                        "!rawstack only takes one argument.",
-                    ))
+                let len = args.len();
+                if len != 1 {
+                    let msg = match len {
+                        0 => "No variable supplied!",
+                        _ => "!rawstack only takes one argument.",
+                    };
+                    return DispatchResult::CommandFailed(Self::make_error(msg))
                 }
 
                 // Store the variable that we want to inspect
-                let to_inspect = args[0];
+                let to_inspect = args.first().unwrap();
 
                 // Get a mutable reference to the session source
-                let source =
-                    match self.session.session_source.as_mut().ok_or(DispatchResult::CommandFailed(
-                        "Session source not present".to_string(),
-                    )) {
-                        Ok(session_source) => session_source,
-                        Err(e) => return e,
-                    };
+                let source = match self.session.session_source.as_mut() {
+                    Some(session_source) => session_source,
+                    _ => {
+                        return DispatchResult::CommandFailed(
+                            "Session source not present".to_string(),
+                        )
+                    }
+                };
 
                 // Copy the variable's stack contents into a bytes32 variable without updating
                 // the current session source.
-                if let Ok((mut new_source, _)) = source.clone_with_new_line(format!(
-                    "bytes32 __raw__; assembly {{ __raw__ := {to_inspect} }}"
-                )) {
+                let line = format!("bytes32 __raw__; assembly {{ __raw__ := {to_inspect} }}");
+                if let Ok((new_source, _)) = source.clone_with_new_line(line) {
                     match new_source.inspect("__raw__").await {
-                        Ok(res) => {
-                            // If the input was inspected, hault here and display the contents
-                            // of the `__raw__` variable's stack allocation.
-                            if let Some(res) = res {
-                                return DispatchResult::CommandSuccess(Some(res))
-                            }
-                        }
-                        Err(e) => {
-                            // If there was an explicit error thrown, hault here.
-                            return DispatchResult::CommandFailed(Self::make_error(e))
-                        }
+                        Ok((_, Some(res))) => return DispatchResult::CommandSuccess(Some(res)),
+                        Ok((_, None)) => {}
+                        Err(e) => return DispatchResult::CommandFailed(Self::make_error(e)),
                     }
                 }
 
@@ -758,7 +756,7 @@ impl ChiselDispatcher {
     }
 
     /// Dispatches an input as a command via [Self::dispatch_command] or as a Solidity snippet.
-    pub async fn dispatch(&mut self, input: &str) -> DispatchResult {
+    pub async fn dispatch(&mut self, mut input: &str) -> DispatchResult {
         // Check if the input is a builtin command.
         // Commands are denoted with a `!` leading character.
         if input.starts_with(COMMAND_LEADER) {
@@ -797,6 +795,20 @@ impl ChiselDispatcher {
             return DispatchResult::Success(None)
         }
 
+        // If there is an address (or multiple addresses) in the input, ensure that they are
+        // encoded with a valid checksum per EIP-55.
+        let mut heap_input = input.to_string();
+        ADDRESS_RE.find_iter(input).for_each(|m| {
+            // Convert the match to a string slice
+            let match_str = m.as_str();
+            // We can always safely unwrap here due to the regex matching.
+            let addr = H160::from_str(match_str).unwrap();
+            // Replace all occurances of the address with a checksummed version
+            heap_input = heap_input.replace(match_str, &ethers::utils::to_checksum(&addr, None));
+        });
+        // Replace the old input with the formatted input.
+        input = &heap_input;
+
         // Create new source with exact input appended and parse
         let (mut new_source, do_execute) = match source.clone_with_new_line(input.to_string()) {
             Ok(new) => new,
@@ -811,15 +823,14 @@ impl ChiselDispatcher {
         // TODO: Cloning / parsing the session source twice on non-inspected inputs kinda sucks.
         // Should change up how this works.
         match source.inspect(input).await {
-            Ok(res) => {
-                // If the input was inspected, hault here.
-                if let Some(res) = res {
-                    self.errored = false;
-                    return DispatchResult::Success(Some(res))
-                }
-            }
+            // Continue and print
+            Ok((true, Some(res))) => println!("{res}"),
+            Ok((true, None)) => {}
+            // Return successfully
+            Ok((false, res)) => return DispatchResult::Success(res),
+
+            // Return with the error
             Err(e) => {
-                // If there was an explicit error thrown, hault here.
                 self.errored = true;
                 return DispatchResult::CommandFailed(Self::make_error(e))
             }
