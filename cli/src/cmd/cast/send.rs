@@ -10,6 +10,7 @@ use ethers::{
 };
 use foundry_config::{Chain, Config};
 use std::str::FromStr;
+use std::path::PathBuf;
 
 /// CLI arguments for `cast send`.
 #[derive(Debug, Parser)]
@@ -61,10 +62,12 @@ pub enum SendTxSubcommands {
     #[clap(name = "--create", about = "Use to deploy raw contract bytecode")]
     Create {
         #[clap(help = "Bytecode of contract.", value_name = "CODE")]
-        code: String,
+        code: Option<String>,
         #[clap(help = "The signature of the function to call.", value_name = "SIG")]
         sig: Option<String>,
         #[clap(help = "The arguments of the function to call.", value_name = "ARGS")]
+        #[clap(short, long, help = "File to read bytecode of contract.")]
+        code_file: Option<PathBuf>,
         args: Vec<String>,
     },
 }
@@ -89,6 +92,39 @@ impl SendTxArgs {
         let api_key = config.get_etherscan_api_key(Some(chain));
         let mut sig = sig.unwrap_or_default();
 
+        let code = match command {
+            Some(SendTxSubcommands::Create {
+                code_file,
+                code,
+                sig: constructor_sig,
+                args: constructor_args,
+            }) => {
+                sig = constructor_sig.unwrap_or_default();
+                args = constructor_args;
+                match code {
+                    Some(code) => {
+                        Some(code)
+                    },
+                    None => {
+                        match code_file {
+                            Some(path) => {
+                                match std::fs::read_to_string(&path) {
+                                    // TODO: implement more robust file content handling, e.g. multiple lines, preceeding 0x etc
+                                    Ok(file_data) => Some(file_data.replace("\n","")),
+                                    Err(..) => {
+                                        // TODO: diagnose and report error
+                                        None
+                                    },
+                                }
+                            },
+                            None => None,
+                        }
+                    },
+                }
+            },
+            None => None,
+        };
+
         if let Ok(signer) = eth.wallet.signer(chain.id()).await {
             let from = signer.address();
 
@@ -109,19 +145,6 @@ impl SendTxArgs {
             if resend {
                 tx.nonce = Some(provider.get_transaction_count(from, None).await?);
             }
-
-            let code = if let Some(SendTxSubcommands::Create {
-                code,
-                sig: constructor_sig,
-                args: constructor_args,
-            }) = command
-            {
-                sig = constructor_sig.unwrap_or_default();
-                args = constructor_args;
-                Some(code)
-            } else {
-                None
-            };
 
             let provider = provider.with_signer(signer);
 
@@ -145,19 +168,6 @@ impl SendTxArgs {
             if resend {
                 tx.nonce = Some(provider.get_transaction_count(config.sender, None).await?);
             }
-
-            let code = if let Some(SendTxSubcommands::Create {
-                code,
-                sig: constructor_sig,
-                args: constructor_args,
-            }) = command
-            {
-                sig = constructor_sig.unwrap_or_default();
-                args = constructor_args;
-                Some(code)
-            } else {
-                None
-            };
 
             cast_send(
                 provider,
