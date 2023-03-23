@@ -15,6 +15,9 @@ ARG TARGETARCH
 ARG BUILDPLATFORM
 WORKDIR /opt
 
+# Use Bash here so we can run the conditional [[]] and so on below
+SHELL ["/bin/bash", "-c"]
+
 # Works around an arm-specific rust bug, see: https://github.com/cross-rs/cross/issues/598
 RUN set -ex; [[ "$TARGETARCH" = "arm64" || $(uname -m) = "aarch64" ]] && echo "export CFLAGS=-mno-outline-atomics" >> $HOME/.profile || true
 
