@@ -19,7 +19,7 @@ WORKDIR /opt
 SHELL ["/bin/bash", "-c"]
 
 # Works around an arm-specific rust bug, see: https://github.com/cross-rs/cross/issues/598
-RUN set -ex; [[ "$TARGETARCH" = "arm64" || $(uname -m) = "aarch64" ]] && echo "export CFLAGS=-mno-outline-atomics" >> $HOME/.profile || true
+RUN set -e; [[ "$TARGETARCH" = "arm64" || $(uname -m) = "aarch64" ]] && echo "export CFLAGS=-mno-outline-atomics" >> $HOME/.profile || true
 
 WORKDIR /opt/foundry
 COPY . .
@@ -48,7 +48,7 @@ COPY --from=build-environment /opt/foundry/out/forge /usr/local/bin/forge
 COPY --from=build-environment /opt/foundry/out/cast /usr/local/bin/cast
 COPY --from=build-environment /opt/foundry/out/anvil /usr/local/bin/anvil
 
-RUN adduser -Du 1000 foundry
+RUN adduser --uid 1000 --gid 1000 --disabled-password --gecos '' foundry
 
 ENTRYPOINT ["/bin/sh", "-c"]
 
