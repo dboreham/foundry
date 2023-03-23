@@ -229,7 +229,12 @@ async fn main() -> eyre::Result<()> {
         Subcommands::Block { block, full, field, to_json, rpc } => {
             let config = Config::from(&rpc);
             let provider = utils::get_provider(&config)?;
-            println!("{}", Cast::new(provider).block(block, full, field, to_json).await?);
+            println!(
+                "{}",
+                Cast::new(provider)
+                    .block(block.unwrap_or(BlockId::Number(Latest)), full, field, to_json)
+                    .await?
+            );
         }
         Subcommands::BlockNumber { rpc } => {
             let config = Config::from(&rpc);
@@ -251,10 +256,10 @@ async fn main() -> eyre::Result<()> {
             let provider = utils::get_provider(&config)?;
             println!("{}", provider.client_version().await?);
         }
-        Subcommands::Code { block, who, rpc } => {
+        Subcommands::Code { block, who, disassemble, rpc } => {
             let config = Config::from(&rpc);
             let provider = utils::get_provider(&config)?;
-            println!("{}", Cast::new(provider).code(who, block).await?);
+            println!("{}", Cast::new(provider).code(who, block, disassemble).await?);
         }
         Subcommands::ComputeAddress { address, nonce, rpc } => {
             let config = Config::from(&rpc);
@@ -263,6 +268,9 @@ async fn main() -> eyre::Result<()> {
             let address: Address = stdin::unwrap_line(address)?.parse()?;
             let computed = Cast::new(&provider).compute_address(address, nonce).await?;
             println!("Computed Address: {}", SimpleCast::to_checksum_address(&computed));
+        }
+        Subcommands::Disassemble { bytecode } => {
+            println!("{}", SimpleCast::disassemble(&bytecode)?);
         }
         Subcommands::FindBlock(cmd) => cmd.run().await?,
         Subcommands::GasPrice { rpc } => {

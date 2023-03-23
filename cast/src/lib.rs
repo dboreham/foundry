@@ -18,6 +18,7 @@ use ethers_core::{
 };
 use ethers_etherscan::{errors::EtherscanError, Client};
 use ethers_providers::{Middleware, PendingTransaction};
+use evm_disassembler::{disassemble_bytes, disassemble_str, format_operations};
 use eyre::{Context, Result};
 use foundry_common::{abi::encode_args, fmt::*, TransactionReceiptWithRevertReason};
 pub use foundry_evm::*;
@@ -422,6 +423,9 @@ where
             "0x7ca38a1916c42007829c55e69d3e9a73265554b586a499015373241b8a3fa48b" => {
                 "optimism-mainnet"
             }
+            "0xc1fc15cd51159b1f1e5cbc4b82e85c1447ddfa33c52cf1d98d14fba0d6354be1" => {
+                "optimism-goerli"
+            }
             "0x02adc9b449ff5f2467b8c674ece7ff9b21319d76c4ad62a67a70d552655927e5" => {
                 "optimism-kovan"
             }
@@ -593,7 +597,7 @@ where
     /// let provider = Provider::<Http>::try_from("http://localhost:8545")?;
     /// let cast = Cast::new(provider);
     /// let addr = Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa")?;
-    /// let code = cast.code(addr, None).await?;
+    /// let code = cast.code(addr, None, false).await?;
     /// println!("{}", code);
     /// # Ok(())
     /// # }
@@ -602,8 +606,14 @@ where
         &self,
         who: T,
         block: Option<BlockId>,
+        disassemble: bool,
     ) -> Result<String> {
-        Ok(format!("{}", self.provider.get_code(who, block).await?))
+        if disassemble {
+            let code = self.provider.get_code(who, block).await?.to_vec();
+            Ok(format_operations(disassemble_bytes(code)?)?)
+        } else {
+            Ok(format!("{}", self.provider.get_code(who, block).await?))
+        }
     }
 
     /// # Example
@@ -1627,6 +1637,24 @@ impl SimpleCast {
         let source_tree = meta.source_tree();
         source_tree.write_to(&output_directory)?;
         Ok(())
+    }
+
+    /// Disassembles hex encoded bytecode into individual / human readable opcodes
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use cast::SimpleCast as Cast;
+    ///
+    /// # async fn foo() -> eyre::Result<()> {
+    /// let bytecode = "0x608060405260043610603f57600035";
+    /// let opcodes = Cast::disassemble(bytecode)?;
+    /// println!("{}", opcodes);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn disassemble(bytecode: &str) -> Result<String> {
+        format_operations(disassemble_str(bytecode)?)
     }
 }
 

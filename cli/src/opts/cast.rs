@@ -268,7 +268,7 @@ Examples:
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -285,12 +285,14 @@ Examples:
     Block {
         #[clap(
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
-        block: BlockId,
+        block: Option<BlockId>,
 
         #[clap(
+            long,
+            short = 'f',
             help = "If specified, only get the given field of the block.",
             value_name = "FIELD"
         )]
@@ -362,6 +364,13 @@ Examples:
 
         #[clap(flatten)]
         rpc: RpcOpts,
+    },
+    #[clap(name = "disassemble")]
+    #[clap(visible_alias = "da")]
+    #[clap(about = "Disassembles hex encoded bytecode into individual / human readable opcodes")]
+    Disassemble {
+        #[clap(help = "The hex encoded bytecode", value_name = "BYTECODE")]
+        bytecode: String,
     },
     #[clap(name = "namehash")]
     #[clap(visible_aliases = &["na", "nh"])]
@@ -512,7 +521,7 @@ Defaults to decoding output data. To decode input data pass --input or use cast 
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -531,7 +540,7 @@ Defaults to decoding output data. To decode input data pass --input or use cast 
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -604,10 +613,8 @@ Tries to decode the calldata using https://sig.eth.samczsun.com unless --offline
     #[clap(about = "Get the timestamp of a block.")]
     Age {
         #[clap(
-            long,
-            short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -623,7 +630,7 @@ Tries to decode the calldata using https://sig.eth.samczsun.com unless --offline
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -646,10 +653,8 @@ Tries to decode the calldata using https://sig.eth.samczsun.com unless --offline
     #[clap(about = "Get the basefee of a block.")]
     BaseFee {
         #[clap(
-            long,
-            short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -665,13 +670,20 @@ Tries to decode the calldata using https://sig.eth.samczsun.com unless --offline
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
 
         #[clap(help = "The contract address.", value_parser = NameOrAddress::from_str, value_name = "WHO")]
         who: NameOrAddress,
+
+        #[clap(
+            long = "disassemble",
+            short = 'd',
+            help_heading = "disassemble bytecodes into individual opcodes"
+        )]
+        disassemble: bool,
 
         #[clap(flatten)]
         rpc: RpcOpts,
@@ -749,7 +761,7 @@ Tries to decode the calldata using https://sig.eth.samczsun.com unless --offline
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
@@ -765,7 +777,7 @@ Tries to decode the calldata using https://sig.eth.samczsun.com unless --offline
             long,
             short = 'B',
             help = "The block height you want to query at.",
-            long_help = "The block height you want to query at. Can also be the tags earliest, latest, or pending.",
+            long_help = "The block height you want to query at. Can also be the tags earliest, finalized, safe, latest, or pending.",
             value_name = "BLOCK"
         )]
         block: Option<BlockId>,
